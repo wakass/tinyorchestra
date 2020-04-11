@@ -1,0 +1,3 @@
+[submodule "TinyWireS"]
+	path = lib/TinyWireS
+	url = https://github.com/nadavmatalon/TinyWireS.git
