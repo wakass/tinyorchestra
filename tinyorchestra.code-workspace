@@ -2,13 +2,6 @@
 	"folders": [
 		{
 			"path": "."
-		},
-		{
-			"name": "tinyorchestra_conductor",
-			"path": "/Users/waka/dev/tinyorchestra_conductor"
-		},
-		{
-			"path": "/Users/waka/dev/arduinoISP"
 		}
 	],
 	"settings": {}
