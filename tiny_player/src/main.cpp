@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include "tinyorchestra.h"
+#include "tiny_player.h"
 #include <TinyWireS.h>
 
 const byte SLAVE_ADDR = 100;
