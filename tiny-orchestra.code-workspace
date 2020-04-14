@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "tiny_player"
+		},
+		{
+			"path": "tiny_conductor"
+		},
+		{
+			"path": "arduinoISP"
+		}
+	],
+	"settings": {}
+}

@@ -1,6 +1,8 @@
 #include <Arduino.h>
+
 #include "tiny_player.h"
-#include <TinyWireS.h>
+
+#include <TinyWireS.h> //Transparent coming from ATTinyCore
 
 const byte SLAVE_ADDR = 100;
 const byte NUM_BYTES = 4;
@@ -8,7 +10,7 @@ const byte NUM_BYTES = 4;
 volatile byte data[NUM_BYTES] = { 0, 1, 2, 3 };
 volatile byte pulse = 0;
 volatile int volume = 120;
-
+volatile byte last_received = 0;
 
 
 void setup() {
@@ -42,13 +44,17 @@ void loop() {}
 
 
 void receiveISR(byte r) {
-  if (r == 42){
-    volume = 50;
+  last_received = r;
+  while (TinyWireS.available()) {
+    int r = TinyWireS.read();
+    OCR0A = r;
   }
-  
 }
+
 void requestISR() {
-    for (byte i=0; i<NUM_BYTES; i++) {
+    TinyWireS.write(OCR0A);
+    TinyWireS.write(last_received);
+    for (byte i=0; i<NUM_BYTES-2; i++) {
         TinyWireS.write(data[i]);
         data[i] += 1;
     }
@@ -61,5 +67,5 @@ ISR (TIMER0_COMPA_vect) {
   else {
     OCR1A = 0xFF; OCR1B = 0xFF;
   }
-  
+ 
 }
