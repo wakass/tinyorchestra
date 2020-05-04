@@ -1,0 +1,2 @@
+void printData();
+void printTinyStatus();
