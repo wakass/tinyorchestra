@@ -51,13 +51,19 @@ void setup() {
     // Set up Timer/Counter0 for 8kHz interrupt to output the "real" PWM.
     //OCR0A determines frequency
     TCCR0A = 3 <<WGM00;                      // Fast PWM //Top is OCR0A
-    TCCR0B = 1 <<WGM02 | 3<<CS00;            // 1/8 prescale
+    TCCR0B = 1 <<WGM02 | 3<<CS00;            // 1/64 prescale
     TIMSK = 1 <<OCIE0A;                      // Enable compare match
     OCR0A = 200;                             // Now at ~22050 KHz
 
     
     pinMode(4, OUTPUT);
     pinMode(1, OUTPUT);
+
+    // byte data = 0x6b;
+    // int_freq = data >> 3; 
+    // data = 0x01;
+    // int_freq |= (data & 0x7) << 5;
+    // OCR0A = (0xFF - (int_freq));
 }
 
 void lenTick() {
@@ -130,13 +136,14 @@ void processRegisterCommand(byte reg, byte data){
         int_period  = (data & 7);
       break;
     case NR23: //NR23 FF18 FFFF FFFF Frequency LSB
-        int_freq = data << 3; 
-        OCR0A = int_freq;
+        int_freq = data >> 3; 
+          OCR0A = (0xFF - (int_freq));
       break;
     case NR24: //NR24 FF19 TL-- -FFF Trigger, Length enable, Frequency MSB
         int_trigger = (data & 0x80) >> 7;
         int_len_enable = (data & 0x40) >> 6;
-        int_freq |= (data & 0x7);
+        int_freq |= (data & 0x7) << 5;
+          OCR0A = (0xFF - (int_freq));
         if (int_trigger)
           processTrigger();
       break;

@@ -1,0 +1,3 @@
+~/dev/gameboy/gbsplay/gbsplay -o iodumper song.gbs  > song.hex
+xxd -i -len 16000 song.hex song.h 
+sed -i ''  -E 's/unsigned\ char(.*)=/const\ unsigned\ char\1\ PROGMEM =/g' song.h

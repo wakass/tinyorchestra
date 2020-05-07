@@ -15,4 +15,4 @@ void receiveISR(byte r);
 #define NR23 8
 #define NR24 9
 
-#define METRONOME_TICK 0xFF
+#define METRONOME_TICK 0xF

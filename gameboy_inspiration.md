@@ -54,3 +54,21 @@ SequencerISR{
 	clockVolume();
 	clockSweep();
 }
+
+### GBSPlay
+Use gbsplay -o iodumper to check the cycles-diff and the instruction to which registers.
+Modified iodumper to output raw bytes. Progmem read
+```
+./gbsplay -o iodumper song.gbs  > song.hex
+#limit xxd output to n bytes
+xxd -i -len 16000 song.hex song.h 
+```
+
+Instruction written in byte format;
+```
+typedef struct {
+            long    elapsed;
+            uint8_t addr;
+            uint8_t val;
+} gbs_instr;
+```

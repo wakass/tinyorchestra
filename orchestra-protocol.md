@@ -2,7 +2,7 @@
 
 16bit instructions consisting of:
 
-RRRR FFFF   , register select, special flag
+RRRR ssss   , register select, special flag
 xxxx xxxx   , register content
 
 16 possible registers
@@ -24,7 +24,7 @@ xxxx xxxx   , register content
 #define NR24 9
 
 ## Special flags
-#define METRONOME_TICK 0xFF
+#define METRONOME_TICK 0xF
 
 ## Metronome ticks
 Sent over general i2c address 0x00. All players receive general call. 

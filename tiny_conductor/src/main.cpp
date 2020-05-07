@@ -4,10 +4,10 @@
 #include <tiny_conductor.h>
 #include <tinyStatus.h>
 
-void metronomeTick();
-void setupSound();
-void initSound();
-void incrementFrequency();
+#define GBHW_CYCLE_MS 1.0/4194304.0 *1e3
+#include "../../song.h"
+uint32_t prgCounter = 0;
+
 
 
 byte frequency_counter = 50;
@@ -88,7 +88,10 @@ void setup() {
     Serial.begin(9600);
     Wire.begin();
     Serial.print(F("\n\nSerial is Open\n\n"));
+    init_translation_table();
     initSound();
+    printTinyStatus();
+
     setupSound();
     printTinyStatus();
 
@@ -101,14 +104,75 @@ void setup() {
 // }
 
 
+typedef struct {
+            long    elapsed;
+            uint8_t addr;
+            uint8_t val;
+} gbs_instr;
+
+#define TT translation_table
+byte translation_table[255]; //only needs to count to 0xFF, or less, i guess
+void init_translation_table(){
+    //Map channel 1 to 2 for the moment
+    TT[0x10] = NR20;
+    TT[0x11] = NR21;
+    TT[0x12] = NR22;
+    TT[0x13] = NR23;
+    TT[0x14] = NR24;
+
+    TT[0x15] = NR20;
+    TT[0x16] = NR21;
+    TT[0x17] = NR22;
+    TT[0x18] = NR23;
+    TT[0x19] = NR24;
+    TT[0x20] = 0;
+}
+void issue_instruction(uint8_t addr, uint8_t val) {
+    // if (addr == 0x23) Serial.println(addr);
+    // Serial.println(val);
+    
+    Wire.beginTransmission(SLAVE_ADDR);
+    byte reg_select = TT[addr] << 4; //Get instruction translation from GB land to orchestra land
+
+    Wire.write(reg_select);
+    Wire.write(val);
+
+    Wire.endTransmission();
+}
 
 void loop() {
+     
+    // incrementFrequency();
+    // delay(10); //small delay or i2c is too fast for the human ear.
     
-    incrementFrequency();
-    delay(10); //small delay or i2c is too fast for the human ear.
-    if (millis() - timeNow >= 250) {                                        // trigger every 750mS
-        
-        timeNow = millis();                                                 // mark preset time for next trigger
+    unsigned long elapsed = millis() - timeNow;
+
+    if (elapsed >= (1.0/60.0 * 1000.0 )){
+        timeNow = millis();
+        gbs_instr instr;
+        memcpy_P(&instr, &song_hex[prgCounter],sizeof(gbs_instr));
+        uint32_t instruction_cycles_elapsed = instr.elapsed;
+
+        while (instruction_cycles_elapsed * GBHW_CYCLE_MS < elapsed){
+            issue_instruction(instr.addr,instr.val);
+            
+            //fetch the next instruction
+            prgCounter += sizeof(gbs_instr); //Ahead instuction bytes
+            memcpy_P(&instr, &song_hex[prgCounter],sizeof(gbs_instr));
+            instruction_cycles_elapsed += instr.elapsed;
+            // Serial.print("Cyc elapsed: ");
+            // Serial.println(instruction_cycles_elapsed);
+            // Serial.print("elapsed: ");
+            // Serial.println(elapsed);
+            
+        }
+        // Serial.print("prgC: ");
+        // Serial.println(prgCounter);
+        // Serial.print("elpsd: ");
+        // Serial.println(elapsed);
+        // Serial.print("ins cycl: ");
+        // Serial.println(instruction_cycles_elapsed);
+
     }
 }
 
