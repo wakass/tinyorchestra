@@ -59,11 +59,6 @@ void setup() {
     pinMode(4, OUTPUT);
     pinMode(1, OUTPUT);
 
-    // byte data = 0x6b;
-    // int_freq = data >> 3; 
-    // data = 0x01;
-    // int_freq |= (data & 0x7) << 5;
-    // OCR0A = (0xFF - (int_freq));
 }
 
 void lenTick() {
@@ -137,7 +132,7 @@ void processRegisterCommand(byte reg, byte data){
       break;
     case NR23: //NR23 FF18 FFFF FFFF Frequency LSB
         int_freq = data >> 3; 
-          OCR0A = (0xFF - (int_freq));
+          OCR0A = (0xFF - (int_freq)); //The square wave period is the inverse apparently of the frequency tick
       break;
     case NR24: //NR24 FF19 TL-- -FFF Trigger, Length enable, Frequency MSB
         int_trigger = (data & 0x80) >> 7;
