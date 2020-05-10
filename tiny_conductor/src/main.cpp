@@ -5,7 +5,9 @@
 #include <tinyStatus.h>
 
 #define GBHW_CYCLE_MS 1.0/4194304.0 *1e3
+#define SONG_ megaman_hex
 #include "../../song.h"
+#include "../../megaman.h"
 uint32_t prgCounter = 0;
 
 
@@ -128,7 +130,7 @@ void init_translation_table(){
     TT[0x20] = 0;
 }
 void issue_instruction(uint8_t addr, uint8_t val) {
-    // if (addr == 0x23) Serial.println(addr);
+    // Serial.println(addr);
     // Serial.println(val);
     
     Wire.beginTransmission(SLAVE_ADDR);
@@ -139,37 +141,47 @@ void issue_instruction(uint8_t addr, uint8_t val) {
 
     Wire.endTransmission();
 }
-
+unsigned long loop_total_elapsed = 0;
 void loop() {
      
     // incrementFrequency();
     // delay(10); //small delay or i2c is too fast for the human ear.
     
-    unsigned long elapsed = millis() - timeNow;
+    unsigned long loop_single_elapsed = millis() - timeNow;
 
-    if (elapsed >= (1.0/60.0 * 1000.0 )){
+    //execute at ~60Hz, close to regular vblank in gb
+    if (loop_single_elapsed >= (1.0/59.0 * 1000.0 )){
         timeNow = millis();
+        
         gbs_instr instr;
-        memcpy_P(&instr, &song_hex[prgCounter],sizeof(gbs_instr));
+        memcpy_P(&instr, &SONG_[prgCounter],sizeof(gbs_instr));
         uint32_t instruction_cycles_elapsed = instr.elapsed;
 
-        while (instruction_cycles_elapsed * GBHW_CYCLE_MS < elapsed){
+        //Do all instructions of which the total elapsed time is below our single loop time
+        if (instruction_cycles_elapsed * GBHW_CYCLE_MS > loop_total_elapsed) {
+            loop_total_elapsed += loop_single_elapsed;
+        }
+        else {
+            loop_total_elapsed = loop_single_elapsed;
+        }
+        while (instruction_cycles_elapsed * GBHW_CYCLE_MS < loop_total_elapsed){
             issue_instruction(instr.addr,instr.val);
             
             //fetch the next instruction
             prgCounter += sizeof(gbs_instr); //Ahead instuction bytes
-            memcpy_P(&instr, &song_hex[prgCounter],sizeof(gbs_instr));
+            memcpy_P(&instr, &SONG_[prgCounter],sizeof(gbs_instr));
             instruction_cycles_elapsed += instr.elapsed;
             // Serial.print("Cyc elapsed: ");
             // Serial.println(instruction_cycles_elapsed);
             // Serial.print("elapsed: ");
             // Serial.println(elapsed);
+            // delay(1);
             
         }
         // Serial.print("prgC: ");
         // Serial.println(prgCounter);
         // Serial.print("elpsd: ");
-        // Serial.println(elapsed);
+        // Serial.println(loop_total_elapsed);
         // Serial.print("ins cycl: ");
         // Serial.println(instruction_cycles_elapsed);
 

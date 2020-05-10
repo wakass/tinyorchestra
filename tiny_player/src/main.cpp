@@ -9,7 +9,6 @@ const byte SLAVE_ADDR = 100;
 const byte NUM_BYTES = 4;
 
 volatile byte data[NUM_BYTES] = { 0, 1, 2, 3 };
-volatile byte pulse = 0;
 volatile int volume = 120;
 volatile byte last_received = 0;
 
@@ -18,6 +17,14 @@ volatile int frameCounter = 0;
 volatile int lenCounter = 0;
 volatile int volCounter = 0;
 volatile int swpCounter = 0;
+
+volatile byte sqWavePattern[] = {
+  0b00000001,
+  0b10000001,
+  0b10000111,
+  0b01111110
+};
+volatile byte sqWaveCurrent = sqWavePattern[0];
 
 //internal variablublus
 volatile byte int_enable = 0; //internal channel enabled flag.
@@ -53,7 +60,7 @@ void setup() {
     TCCR0A = 3 <<WGM00;                      // Fast PWM //Top is OCR0A
     TCCR0B = 1 <<WGM02 | 3<<CS00;            // 1/64 prescale
     TIMSK = 1 <<OCIE0A;                      // Enable compare match
-    OCR0A = 200;                             // Now at ~22050 KHz
+    OCR0A = 50;
 
     
     pinMode(4, OUTPUT);
@@ -124,6 +131,7 @@ void processRegisterCommand(byte reg, byte data){
     case NR21: //NR21 FF16 DDLL LLLL Duty, Length load (64-L)
         int_duty = data >> 6;   //duty cycle
         int_len  = data & 0x3F; //lowest 6 bits
+        sqWaveCurrent = sqWavePattern[int_duty];
       break;
     case NR22: //NR22 FF17 VVVV APPP Starting volume, Envelope add mode, period
         int_vol = data >> 4;
@@ -146,7 +154,7 @@ void processRegisterCommand(byte reg, byte data){
 
 }
 
-void receiveISR(byte bytes_received) {
+void receiveISR(int bytes_received) {
   last_received = bytes_received;
   while (Wire.available()) {
     byte r = Wire.read();
@@ -173,10 +181,23 @@ void requestISR() {
   Wire.write(int_len_enable);
   
 }
-
+// volatile byte pulse = 0;
 ISR (TIMER0_COMPA_vect) {
-  pulse = pulse ^ 0xF;
-  if (pulse == 0xF && int_enable) { //turn off channel if not enabled
+  byte pulse;
+  // Circular shift our sqWave, output current (before shift) MSB to pulse byte
+  asm volatile(
+    // "mov __tmp_reg__, %0 \n\t"
+    "bst %[wave], 7   \n\t" //Store in T flag.
+    "eor %[pulse], %[pulse] \n\t" //Zero the variable
+    "bld %[pulse], 0  \n\t" //Set the pulse byte
+    "rol %[wave]      \n\t" //Rotate left, with bit 7 falling off the end.
+    "bld %[wave], 0   \n\t" //Put back into beginning.
+    
+    : [wave] "=&r" (sqWaveCurrent), [pulse] "=r" (pulse)  //Output operands
+    : "0" (sqWaveCurrent)                                 //input operands
+    :                                                     //clobbered registers, empty
+  );
+  if (pulse && int_enable) { //turn off channel if not enabled
     OCR1A = volume; OCR1B = (volume) ^ 255;
   }
   else {

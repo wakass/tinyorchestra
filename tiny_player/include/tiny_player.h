@@ -1,5 +1,5 @@
 void requestISR();
-void receiveISR(byte r);
+void receiveISR(int bytes_received);
 
 //Square wave 1
 #define NR10 0
