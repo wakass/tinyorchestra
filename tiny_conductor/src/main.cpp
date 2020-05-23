@@ -3,14 +3,15 @@
 #include "../../tiny_player/include/tiny_player.h"
 #include <tiny_conductor.h>
 #include <tinyStatus.h>
+#include <util/delay_basic.h>
+
 
 #define GBHW_CYCLE_MS 1.0/4194304.0 *1e3
-#define SONG_ megaman_hex
+#define SONG_ song_hex
+#define SONG_LEN song_hex_len
 #include "../../song.h"
 #include "../../megaman.h"
 uint32_t prgCounter = 0;
-
-
 
 byte frequency_counter = 50;
 
@@ -35,75 +36,24 @@ void initSound() {
     Wire.endTransmission();
 }
 
-void setupSound(){
-    Wire.beginTransmission(SLAVE_ADDR);
-    byte reg_select = NR21 << 4;
-    byte nr21 = 0x00; //0 duty      00000001    12.5%
-    Wire.write(reg_select);
-    Wire.write(nr21);
-
-    reg_select = NR22 << 4;
-    byte nr22 = 0x0F << 4 | 0 << 3 | 0; //VVVV APPP Starting volume, Envelope add mode, period
-    Wire.write(reg_select);
-    Wire.write(nr22);
-
-    reg_select = NR23 << 4;
-    byte nr23 = 0x2F;//FFFF FFFF Frequency LSB
-    Wire.write(reg_select);
-    Wire.write(nr23);
-
-    reg_select = NR24 << 4;
-    byte nr24 = 1 << 7 | 0 << 6 | 0 << 2; //TL-- -FFF Trigger, Length enable, Frequency MSB
-    Wire.write(reg_select);
-    Wire.write(nr24);
-    
-    Wire.endTransmission();
-}
-
-void setFrequency(byte freq) {
-    Wire.beginTransmission(SLAVE_ADDR);
-
-    byte reg_select = NR23 << 4;
-    byte nr23 = freq;//FFFF FFFF Frequency LSB
-    Wire.write(reg_select);
-    Wire.write(nr23);
-
-    Wire.endTransmission();
-}
-int freq = 0;
-void incrementFrequency() {
-    freq++;
-    if (freq > 0xFF)
-        freq = 0;
-    setFrequency(freq);
-    
-
-}
-
-
 void setup() {
-    // TCCR2A = 1 << WGM01; //CTC Mode
-    // TCCR2B = 6 << CS20; //256 prescale, ==> 62.5 Khz effective clock
-    // OCR2A = 122; //~512Hz
-    // TIMSK2 |= 1 << OCIE2A; //Enable interrupt fire on compare match
+    TCCR2A = 1 << WGM01; //CTC Mode
+    TCCR2B = 6 << CS20; //256 prescale, ==> 62.5 Khz effective clock
+    OCR2A = 122; //~512Hz
+    TIMSK2 |= 1 << OCIE2A; //Enable interrupt fire on compare match
     
     Serial.begin(9600);
     Wire.begin();
     Serial.print(F("\n\nSerial is Open\n\n"));
     init_translation_table();
-    initSound();
-    printTinyStatus();
-
-    setupSound();
-    printTinyStatus();
 
 }
 
 
-// ISR (TIMER2_COMPA_vect) {
-//     sei(); //re-enable interrupts in order to send i2c data.
-//     metronomeTick();
-// }
+ISR (TIMER2_COMPA_vect) {
+    sei(); //re-enable interrupts in order to send i2c data.
+    metronomeTick();
+}
 
 
 typedef struct {
@@ -130,9 +80,6 @@ void init_translation_table(){
     TT[0x20] = 0;
 }
 void issue_instruction(uint8_t addr, uint8_t val) {
-    // Serial.println(addr);
-    // Serial.println(val);
-    
     Wire.beginTransmission(SLAVE_ADDR);
     byte reg_select = TT[addr] << 4; //Get instruction translation from GB land to orchestra land
 
@@ -150,13 +97,14 @@ void loop() {
     unsigned long loop_single_elapsed = millis() - timeNow;
 
     //execute at ~60Hz, close to regular vblank in gb
-    if (loop_single_elapsed >= (1.0/59.0 * 1000.0 )){
+    #define VBLANK_MS (1.0/59.0 * 1000.0)
+    if (loop_single_elapsed >= VBLANK_MS){ //Effectively every 17ms
         timeNow = millis();
         
         gbs_instr instr;
         memcpy_P(&instr, &SONG_[prgCounter],sizeof(gbs_instr));
         uint32_t instruction_cycles_elapsed = instr.elapsed;
-
+        
         //Do all instructions of which the total elapsed time is below our single loop time
         if (instruction_cycles_elapsed * GBHW_CYCLE_MS > loop_total_elapsed) {
             loop_total_elapsed += loop_single_elapsed;
@@ -164,26 +112,22 @@ void loop() {
         else {
             loop_total_elapsed = loop_single_elapsed;
         }
-        while (instruction_cycles_elapsed * GBHW_CYCLE_MS < loop_total_elapsed){
+        while (instruction_cycles_elapsed * GBHW_CYCLE_MS <= loop_total_elapsed){
             issue_instruction(instr.addr,instr.val);
             
             //fetch the next instruction
+            
             prgCounter += sizeof(gbs_instr); //Ahead instuction bytes
+            if (prgCounter > SONG_LEN) { prgCounter = 0;}
             memcpy_P(&instr, &SONG_[prgCounter],sizeof(gbs_instr));
             instruction_cycles_elapsed += instr.elapsed;
-            // Serial.print("Cyc elapsed: ");
-            // Serial.println(instruction_cycles_elapsed);
-            // Serial.print("elapsed: ");
-            // Serial.println(elapsed);
-            // delay(1);
-            
+            _delay_loop_2(instr.elapsed<<2); 
+            //each _delay_loop_2 takes 4 CPU cycles
+            //Assuming gb runs at 4mhz and our conductor at 16mhz,
+            //a 1 gb-cycle can be expressed as 4 of our cycles
+
+                        
         }
-        // Serial.print("prgC: ");
-        // Serial.println(prgCounter);
-        // Serial.print("elpsd: ");
-        // Serial.println(loop_total_elapsed);
-        // Serial.print("ins cycl: ");
-        // Serial.println(instruction_cycles_elapsed);
 
     }
 }
