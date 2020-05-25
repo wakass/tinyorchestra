@@ -1,6 +1,18 @@
 void requestISR();
 void receiveISR(int bytes_received);
 
+void processRegisterCommand(byte reg, byte data);
+
+byte swpShiftAndCheckOverflow(byte &overflow);
+byte swpShiftAndCheckOverflow() {byte dummy; return swpShiftAndCheckOverflow(dummy);}
+uint16_t swpGetNewFrequency(byte current_freq);
+void swpTick();
+void metronomeTick();
+
+//convert the 4bit gameboy volume levels to 8bit PWM we are using (127 is silent, 0 full duty cycle)
+//Half cycle is exacty
+#define TO_HW_VOLUME(x) (0x7F - ((x << 3) + 7))
+
 //Square wave 1
 #define NR10 0
 #define NR11 1

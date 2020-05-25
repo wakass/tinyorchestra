@@ -12,11 +12,11 @@ volatile byte data[NUM_BYTES] = { 0, 1, 2, 3 };
 volatile int volume = 120;
 volatile byte last_received = 0;
 
-volatile int frameCounter = 0;
+volatile uint32_t frameCounter = 1; //Make it 1 instead of 0, so we don't trigger in our processticks-loop.
 
-volatile int lenCounter = 0;
-volatile int volCounter = 0;
-volatile int swpCounter = 0;
+volatile uint32_t lenCounter = 0;
+volatile uint32_t volCounter = 0;
+volatile uint32_t swpCounter = 0;
 
 volatile byte sqWavePattern[] = {
   0b00000001,
@@ -37,6 +37,17 @@ volatile byte int_addmode   = 0;
 volatile byte int_freq      = 0; //more than one byte. Lectori salute canem ahoi
 volatile byte int_trigger   = 0;
 volatile byte int_len_enable = 0;
+//Pulse channel 1
+volatile byte int_swp_period = 0;
+volatile byte int_swp_negate = 0;
+volatile byte int_swp_shift  = 0;
+//Internal to pulse channel 1
+volatile byte int_swp_enable = 0;
+volatile byte int_swp_shadow_freq = 0;
+volatile byte int_swp_timer = 0;
+//
+volatile byte int_vol_enable = 0; //internal volume envelope enable, enable on trigger
+
 
 
 
@@ -66,57 +77,128 @@ void setup() {
     pinMode(4, OUTPUT);
     pinMode(1, OUTPUT);
 
+    processRegisterCommand(NR10,0b00111101);//-PPP NSSS Sweep period, negate, shift
+    
+    processRegisterCommand(NR21,0xBF);
+    processRegisterCommand(NR22,0x60); //VVVV APPP Starting volume, Envelope add mode, period
+
+    processRegisterCommand(NR23,0x22);
+    processRegisterCommand(NR24,0x87);
 }
 
 void lenTick() {
   if (int_len_enable) {
-    int_len--; //if reaches zero turn off channel
-    if (int_len == 0)
+    if (--int_len == 0)  //if reaches zero turn off channel
       int_enable = 0;
   }
-};
-
+}
 void volTick() {
-  volCounter++;
-  if (int_period != 0){
-    if (volCounter % int_period == 0){ //Every n period the volume envelope changes
+  if (int_period && int_vol_enable){ 
+    volCounter++;
+    if (volCounter == int_period){ //Every n period the volume envelope changes
+      volCounter = 0;
           if (int_addmode == 1)
             int_vol++;
           else
             int_vol--;
           if (int_vol >= 0 && int_vol <= 15)
-            volume = int_vol; //set hardware volume
+            volume = TO_HW_VOLUME(int_vol); //set hardware volume
+          else
+            int_vol_enable = 0;
         }
     }
-};
+}
 void swpTick() {
+  if (--int_swp_timer == 0) {
+    
+    int_swp_timer = int_swp_period;
+    //When it generates a clock and the sweep's internal enabled flag is set and 
+    //the sweep period is not zero, a new frequency is calculated and the overflow check is performed
+    if (int_swp_enable && int_swp_period){
+      
+      //If the new frequency is 2047 or less and the sweep shift is not zero, this new frequency is 
+      //written back to the shadow frequency and square 1's frequency in NR13 and NR14, 
+      //then frequency calculation and overflow check are run AGAIN immediately using this new value, but this second new frequency is not written back. 
+      if (int_swp_shift) {
+        byte overflow = 0; 
+        byte new_freq = swpShiftAndCheckOverflow(overflow);
+        
+        if (!overflow) {
+          int_swp_shadow_freq = new_freq;
+          int_freq = new_freq;
+          swpShiftAndCheckOverflow();
 
-};
+          OCR0A = (0xFF - (int_swp_shadow_freq));
+          }
+      }
+    }
+  }
+}
+
+uint16_t swpGetNewFrequency(byte current_freq) {
+  uint16_t shifted = current_freq >> int_swp_shift;
+  uint16_t new_freq = current_freq;
+  
+  if (int_swp_negate)
+    new_freq -= shifted; //Bug here when shifted becomes 0 (e.g. bit 7 and 7 shift), thus sticking the frequency at the stuck point.
+  else 
+    new_freq += shifted;
+
+  return new_freq;
+}
+
+byte swpShiftAndCheckOverflow(byte &overflow) {
+  overflow = 0;
+  uint16_t new_freq = swpGetNewFrequency(int_swp_shadow_freq);
+  //Turn off the channel if the frequency "overflows"
+  if (new_freq > 0xFF) {
+    int_swp_enable = 0;
+    int_enable = 0;
+    overflow = 1;
+    return 0xFF;
+  }
+  return new_freq;
+}
 
 void processTrigger(){
   //For square 1
     // Square 1's frequency is copied to the shadow register.
+    int_swp_shadow_freq = int_freq;
     // The sweep timer is reloaded.
+    int_swp_timer = int_swp_period;
     // The internal enabled flag is set if either the sweep period or shift are non-zero, cleared otherwise.
+    if (int_swp_period || int_swp_shift)
+      int_swp_enable = 1;
+    else
+      int_swp_enable = 0;
     // If the sweep shift is non-zero, frequency calculation and the overflow check are performed immediately.
-  int_enable = int_trigger;
+    if (int_swp_shift) swpShiftAndCheckOverflow();
+  
+  int_enable = 1;
   //reset other counters?
+  int_vol_enable = 1;
 
 }
 
 void processTicks() {   //Assuming ticks come in at 512Hz
   if (frameCounter % 2 == 0) //256Hz
     lenTick();
-  if (frameCounter % 4 == 0) //128Hz
+  if ((frameCounter % 4) == 0) //128Hz
     swpTick();
   if (frameCounter % 8 == 0) //64Hz
     volTick();
   
 }
-
+volatile uint32_t testcounter = 0xFF;
 void loop() {
-  processTicks();
-
+  
+  testcounter -= 1;
+  if(testcounter == 0) {
+    processTicks();
+    testcounter = 0xFF;
+    metronomeTick();
+    // OCR0A ^= 54;
+  }
 }
 
 //Fire the sequencer, pew pew
@@ -126,15 +208,23 @@ void metronomeTick() {
 }
 
 
+
+
 void processRegisterCommand(byte reg, byte data){
   switch(reg){
+    case NR10: //NR10 FF10 -PPP NSSS Sweep period, negate, shift
+        int_swp_period = (data >> 4) & 0x7;
+        int_swp_negate = (data >> 3) & 0x1;
+        int_swp_shift  = data & 0x7;
+      break;
     case NR21: //NR21 FF16 DDLL LLLL Duty, Length load (64-L)
         int_duty = data >> 6;   //duty cycle
-        int_len  = data & 0x3F; //lowest 6 bits
+        int_len  = (data & 0x3F); //lowest 6 bits
         sqWaveCurrent = sqWavePattern[int_duty];
       break;
     case NR22: //NR22 FF17 VVVV APPP Starting volume, Envelope add mode, period
         int_vol = data >> 4;
+        volume = TO_HW_VOLUME(int_vol);
         int_addmode = (data & 8) >> 3;
         int_period  = (data & 7);
       break;
@@ -198,7 +288,7 @@ ISR (TIMER0_COMPA_vect) {
     :                                                     //clobbered registers, empty
   );
   if (pulse && int_enable) { //turn off channel if not enabled
-    OCR1A = volume; OCR1B = (volume) ^ 255;
+    OCR1A = (volume); OCR1B = (volume) ^ 255;
   }
   else {
     OCR1A = 0xFF; OCR1B = 0xFF;
