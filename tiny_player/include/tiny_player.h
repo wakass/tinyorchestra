@@ -9,9 +9,18 @@ uint16_t swpGetNewFrequency(byte current_freq);
 void swpTick();
 void metronomeTick();
 
-//convert the 4bit gameboy volume levels to 8bit PWM we are using (127 is silent, 0 full duty cycle)
-//Half cycle is exacty
-#define TO_HW_VOLUME(x) (0x7F - ((x << 3) + 7))
+//convert the 4bit gameboy volume levels to 8bit PWM we are using (127,128 is almost silent (0xFF on both PWM "channels" true silence), 0 full duty cycle
+// #define TO_HW_VOLUME(x) (0x7F - ((x << 3) + 7))
+#define TO_HW_VOLUME(x,a,b) { \
+if (x == 0) {\
+    a=b=0xFF;\
+}\
+    else {\
+    a = (0x7F - ((x << 3) + 7)); \
+    b = a ^ 255; \
+    }\
+}
+
 
 //Square wave 1
 #define NR10 0

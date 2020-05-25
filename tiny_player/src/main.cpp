@@ -1,15 +1,15 @@
 #include <Arduino.h>
 
 #include "tiny_player.h"
-
-// #include <TinyWireS.h> //Transparent coming from ATTinyCore
 #include <Wire.h>
 
 const byte SLAVE_ADDR = 100;
 const byte NUM_BYTES = 4;
 
 volatile byte data[NUM_BYTES] = { 0, 1, 2, 3 };
-volatile int volume = 120;
+
+volatile byte volumeA = 120;
+volatile byte volumeB = 120 ^ 255;
 volatile byte last_received = 0;
 
 volatile uint32_t frameCounter = 1; //Make it 1 instead of 0, so we don't trigger in our processticks-loop.
@@ -45,7 +45,7 @@ volatile byte int_swp_shift  = 0;
 volatile byte int_swp_enable = 0;
 volatile byte int_swp_shadow_freq = 0;
 volatile byte int_swp_timer = 0;
-//
+
 volatile byte int_vol_enable = 0; //internal volume envelope enable, enable on trigger
 
 
@@ -77,13 +77,14 @@ void setup() {
     pinMode(4, OUTPUT);
     pinMode(1, OUTPUT);
 
-    processRegisterCommand(NR10,0b00111101);//-PPP NSSS Sweep period, negate, shift
+    processRegisterCommand(NR10,0b00111111);//-PPP NSSS Sweep period, negate, shift
     
-    processRegisterCommand(NR21,0xBF);
-    processRegisterCommand(NR22,0x60); //VVVV APPP Starting volume, Envelope add mode, period
+    processRegisterCommand(NR21,0xBF); //	DDLL LLLL Duty, Length load (64-L)
 
-    processRegisterCommand(NR23,0x22);
-    processRegisterCommand(NR24,0x87);
+    processRegisterCommand(NR22,0xF7); //VVVV APPP Starting volume, Envelope add mode, period
+
+    processRegisterCommand(NR23,0x32); //Frequency LSB
+    processRegisterCommand(NR24,0x87); //TL-- -FFF Trigger, Length enable, Frequency MSB
 }
 
 void lenTick() {
@@ -101,10 +102,10 @@ void volTick() {
             int_vol++;
           else
             int_vol--;
-          if (int_vol >= 0 && int_vol <= 15)
-            volume = TO_HW_VOLUME(int_vol); //set hardware volume
-          else
-            int_vol_enable = 0;
+          if (int_vol >= 0 && int_vol <= 15) {
+            TO_HW_VOLUME(int_vol,volumeA,volumeB); //set hardware volume
+            }
+          else int_vol_enable = 0;
         }
     }
 }
@@ -197,7 +198,6 @@ void loop() {
     processTicks();
     testcounter = 0xFF;
     metronomeTick();
-    // OCR0A ^= 54;
   }
 }
 
@@ -224,7 +224,7 @@ void processRegisterCommand(byte reg, byte data){
       break;
     case NR22: //NR22 FF17 VVVV APPP Starting volume, Envelope add mode, period
         int_vol = data >> 4;
-        volume = TO_HW_VOLUME(int_vol);
+        TO_HW_VOLUME(int_vol,volumeA,volumeB);
         int_addmode = (data & 8) >> 3;
         int_period  = (data & 7);
       break;
@@ -288,7 +288,7 @@ ISR (TIMER0_COMPA_vect) {
     :                                                     //clobbered registers, empty
   );
   if (pulse && int_enable) { //turn off channel if not enabled
-    OCR1A = (volume); OCR1B = (volume) ^ 255;
+    OCR1A = (volumeA); OCR1B = (volumeB);
   }
   else {
     OCR1A = 0xFF; OCR1B = 0xFF;
