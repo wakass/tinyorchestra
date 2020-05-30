@@ -3,7 +3,7 @@
 #include <tiny_conductor.h>
 #include <tinyStatus.h>
 
-const byte NUM_BYTES = 9;
+const byte NUM_BYTES = 11;
 byte data[NUM_BYTES] = { 0 };
 byte bytesReceived = 0;
 

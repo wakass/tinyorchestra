@@ -222,6 +222,19 @@ static BitBangedSPI SPI;
 
 #endif
 
+uint16_t swpGetNewFrequency(byte current_freq) {
+  uint16_t shifted = current_freq >> 7;
+  uint16_t new_freq = current_freq;
+  
+  if (0)
+    new_freq -= shifted;
+  else 
+    new_freq += shifted;
+
+  return new_freq;
+}
+
+
 void setup() {
   SERIAL.begin(BAUDRATE);
 
@@ -231,6 +244,11 @@ void setup() {
   pulse(LED_ERR, 2);
   pinMode(LED_HB, OUTPUT);
   pulse(LED_HB, 2);
+
+  // byte freq = 200;
+  // Serial.println(freq);
+  // Serial.println(swpGetNewFrequency(freq));
+  
 
 }
 

@@ -12,7 +12,8 @@ volatile byte volumeA = 120;
 volatile byte volumeB = 120 ^ 255;
 volatile byte last_received = 0;
 
-volatile uint32_t frameCounter = 1; //Make it 1 instead of 0, so we don't trigger in our processticks-loop.
+volatile uint8_t frameCounter = 1; //Make it 1 instead of 0, so we don't trigger in our processticks-loop.
+volatile byte metronomeTickRisingEdge = 0; //To simulate a rising edge of the metronome/sequencer
 
 volatile uint32_t lenCounter = 0;
 volatile uint32_t volCounter = 0;
@@ -36,7 +37,10 @@ volatile byte int_period    = 0;
 volatile byte int_addmode   = 0;
 volatile byte int_freq      = 0; //more than one byte. Lectori salute canem ahoi
 volatile byte int_trigger   = 0;
+
 volatile byte int_len_enable = 0;
+volatile byte int_vol_enable = 0; //internal volume envelope enable, enable on trigger
+volatile byte int_hw_vol = 0; //internal hw volume tracker
 //Pulse channel 1
 volatile byte int_swp_period = 0;
 volatile byte int_swp_negate = 0;
@@ -46,10 +50,24 @@ volatile byte int_swp_enable = 0;
 volatile byte int_swp_shadow_freq = 0;
 volatile byte int_swp_timer = 0;
 
-volatile byte int_vol_enable = 0; //internal volume envelope enable, enable on trigger
 
 
+void requestISR() {
+  Wire.write(int_enable); //general enable flag
+  Wire.write(frameCounter);
 
+  Wire.write(int_duty);
+  Wire.write(int_len);
+  Wire.write(int_vol);
+  Wire.write(int_period);
+  Wire.write(int_addmode);
+  Wire.write(int_freq); //more than one byte. Lectori salute canem ahoi
+  Wire.write(int_trigger);
+  Wire.write(int_len_enable);
+  Wire.write(int_vol_enable);
+
+  
+}
 
 void setup() {
     Wire.begin(SLAVE_ADDR);
@@ -77,14 +95,11 @@ void setup() {
     pinMode(4, OUTPUT);
     pinMode(1, OUTPUT);
 
-    processRegisterCommand(NR10,0b00111111);//-PPP NSSS Sweep period, negate, shift
-    
-    processRegisterCommand(NR21,0xBF); //	DDLL LLLL Duty, Length load (64-L)
-
-    processRegisterCommand(NR22,0xF7); //VVVV APPP Starting volume, Envelope add mode, period
-
-    processRegisterCommand(NR23,0x32); //Frequency LSB
-    processRegisterCommand(NR24,0x87); //TL-- -FFF Trigger, Length enable, Frequency MSB
+    // processRegisterCommand(NR10,0x0);//-PPP NSSS Sweep period, negate, shift
+    // processRegisterCommand(NR21,0xBF); //	DDLL LLLL Duty, Length load (64-L)
+    // processRegisterCommand(NR22,0x0F); //VVVV APPP Starting volume, Envelope add mode, period
+    // processRegisterCommand(NR23,0x32); //Frequency LSB
+    // processRegisterCommand(NR24,0x86); //TL-- -FFF Trigger, Length enable, Frequency MSB
 }
 
 void lenTick() {
@@ -98,16 +113,16 @@ void volTick() {
     volCounter++;
     if (volCounter == int_period){ //Every n period the volume envelope changes
       volCounter = 0;
-          if (int_addmode == 1)
-            int_vol++;
-          else
-            int_vol--;
-          if (int_vol >= 0 && int_vol <= 15) {
-            TO_HW_VOLUME(int_vol,volumeA,volumeB); //set hardware volume
-            }
-          else int_vol_enable = 0;
+      if (int_addmode == 1)
+        int_hw_vol++;
+      else
+        int_hw_vol--;
+      if (int_hw_vol >= 0 && int_hw_vol <= 15) {
+        TO_HW_VOLUME(int_hw_vol,volumeA,volumeB); //set hardware volume
         }
+      else int_vol_enable = 0;
     }
+  }
 }
 void swpTick() {
   if (--int_swp_timer == 0) {
@@ -175,6 +190,9 @@ void processTrigger(){
     // If the sweep shift is non-zero, frequency calculation and the overflow check are performed immediately.
     if (int_swp_shift) swpShiftAndCheckOverflow();
   
+  int_hw_vol = int_vol;
+  TO_HW_VOLUME(int_hw_vol,volumeA,volumeB);
+
   int_enable = 1;
   //reset other counters?
   int_vol_enable = 1;
@@ -182,29 +200,42 @@ void processTrigger(){
 }
 
 void processTicks() {   //Assuming ticks come in at 512Hz
-  if (frameCounter % 2 == 0) //256Hz
+  if (frameCounter % 2 == 0) {//256Hz
     lenTick();
-  if ((frameCounter % 4) == 0) //128Hz
+    }
+  if (frameCounter % 4 == 0) {//128Hz
     swpTick();
-  if (frameCounter % 8 == 0) //64Hz
+    }
+  if ((frameCounter % 8) == 0) {//64Hz
     volTick();
+    }
   
 }
 volatile uint32_t testcounter = 0xFF;
 void loop() {
   
-  testcounter -= 1;
+  //Test metronome ticks are generated at a freq roughly near 512Hz
+  testcounter--;
   if(testcounter == 0) {
-    processTicks();
     testcounter = 0xFF;
     metronomeTick();
   }
+
+  if (metronomeTickRisingEdge) {
+    metronomeTickRisingEdge = 0;
+    //Correct behaviour is to process the metronometick
+    //only on incrementing of the framecounter
+    processTicks(); 
+    }
+  
 }
 
 //Fire the sequencer, pew pew
 void metronomeTick() {
   //We don't really care about overflow since the sequencer runs on divisors
   frameCounter++;
+  metronomeTickRisingEdge = 1;
+
 }
 
 
@@ -219,12 +250,13 @@ void processRegisterCommand(byte reg, byte data){
       break;
     case NR21: //NR21 FF16 DDLL LLLL Duty, Length load (64-L)
         int_duty = data >> 6;   //duty cycle
-        int_len  = (data & 0x3F); //lowest 6 bits
+        int_len  = 64 - (data & 0x3F); //lowest 6 bits
         sqWaveCurrent = sqWavePattern[int_duty];
       break;
     case NR22: //NR22 FF17 VVVV APPP Starting volume, Envelope add mode, period
         int_vol = data >> 4;
-        TO_HW_VOLUME(int_vol,volumeA,volumeB);
+        int_hw_vol = int_vol;
+        
         int_addmode = (data & 8) >> 3;
         int_period  = (data & 7);
       break;
@@ -248,7 +280,7 @@ void receiveISR(int bytes_received) {
   last_received = bytes_received;
   while (Wire.available()) {
     byte r = Wire.read();
-    byte reg   = (r & (0xF << 4)) >> 4; //get high nibble
+    byte reg   = (r >> 4) & 0xF; //get high nibble
     byte flag  = r & (0xF); //low nibble
 
     if (flag == METRONOME_TICK)
@@ -258,20 +290,7 @@ void receiveISR(int bytes_received) {
   }
 }
 
-void requestISR() {
-  Wire.write(int_enable); //general enable flag
 
-  Wire.write(int_duty);
-  Wire.write(int_len);
-  Wire.write(int_vol);
-  Wire.write(int_period);
-  Wire.write(int_addmode);
-  Wire.write(int_freq); //more than one byte. Lectori salute canem ahoi
-  Wire.write(int_trigger);
-  Wire.write(int_len_enable);
-  
-}
-// volatile byte pulse = 0;
 ISR (TIMER0_COMPA_vect) {
   byte pulse;
   // Circular shift our sqWave, output current (before shift) MSB to pulse byte

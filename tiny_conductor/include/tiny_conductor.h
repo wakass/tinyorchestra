@@ -2,6 +2,5 @@
 
 void init_translation_table();
 void metronomeTick();
-void setupSound();
-void initSound();
 void incrementFrequency();
+void issue_instruction(uint8_t addr, uint8_t val);
