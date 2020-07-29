@@ -7,10 +7,18 @@
 
 
 #define GBHW_CYCLE_MS 1.0/4194304.0 *1e3
+// #define SONG_ manual_hex
+// #define SONG_LEN manual_hex_len
+
 #define SONG_ song_hex
 #define SONG_LEN song_hex_len
+
+// #define SONG_ megaman_hex
+// #define SONG_LEN megaman_hex_len
+
 #include "../../song.h"
 #include "../../megaman.h"
+#include "../../manual.h"
 uint32_t prgCounter = 0;
 
 byte frequency_counter = 50;
@@ -40,7 +48,7 @@ void setup() {
     TCCR2B = 6 << CS20; //256 prescale, ==> 62.5 Khz effective clock
     OCR2A = 122; //~512Hz
     // OCR2A = 255; //~512Hz
-    // TIMSK2 |= 1 << OCIE2A; //Enable interrupt fire on compare match
+    TIMSK2 |= 1 << OCIE2A; //Enable interrupt fire on compare match
     
     Serial.begin(9600);
     Wire.begin();
@@ -86,7 +94,7 @@ void init_translation_table(){
     TT[0x13] = NR23;
     TT[0x14] = NR24;
 
-    TT[0x15] = 0xFF;
+    TT[0x15] = 0xFF; //Not used in gameboy
     TT[0x16] = NR21;
     TT[0x17] = NR22;
     TT[0x18] = NR23;
@@ -98,7 +106,18 @@ void issue_instruction(uint8_t addr, uint8_t val) {
     byte reg_select = reg << 4; //Get instruction translation from GB land to orchestra land
 
     if (reg != 0xFF){
-        Wire.beginTransmission(SLAVE_ADDR);
+        do {
+        //Send the instructions to the correct sound units
+        if (addr < 0x15) {
+            Wire.beginTransmission(SLAVE_ADDR);
+            break;
+            }
+        if (addr < 0x20) {
+            Wire.beginTransmission(SLAVE_ADDR+1);
+            break;
+            }
+        } while(0);
+
         Wire.write(reg_select);
         Wire.write(val);
         Wire.endTransmission();
@@ -135,7 +154,7 @@ void loop() {
             if (prgCounter > SONG_LEN) { prgCounter = 0;}
             memcpy_P(&instr, &SONG_[prgCounter],sizeof(gbs_instr));
             instruction_cycles_elapsed += instr.elapsed;
-            _delay_loop_2(instr.elapsed<<2); 
+            _delay_loop_2(instr.elapsed*4); 
             //each _delay_loop_2 takes 4 CPU cycles
             //Assuming gb runs at 4mhz and our conductor at 16mhz,
             //a 1 gb-cycle can be expressed as 4 of our cycles
