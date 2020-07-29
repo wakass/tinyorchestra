@@ -2,6 +2,7 @@
 
 #include "tiny_player.h"
 #include <Wire.h>
+#include <avr/eeprom.h>
 
 const byte SLAVE_ADDR = 100;
 const byte NUM_BYTES = 4;
@@ -91,15 +92,23 @@ void setup() {
     TIMSK = 1 <<OCIE0A;                      // Enable compare match
     OCR0A = 50;
 
+    //The calibrated value should lead to a consistent "GB frequency" accross attiny's
+    int osccal_calibrated = eeprom_read_byte((uint8_t*)0x00);
+    if (osccal_calibrated != 0xFF)
+      OSCCAL = osccal_calibrated;
+
     
     pinMode(4, OUTPUT);
     pinMode(1, OUTPUT);
 
-    // processRegisterCommand(NR10,0x0);//-PPP NSSS Sweep period, negate, shift
-    // processRegisterCommand(NR21,0xBF); //	DDLL LLLL Duty, Length load (64-L)
-    // processRegisterCommand(NR22,0x0F); //VVVV APPP Starting volume, Envelope add mode, period
-    // processRegisterCommand(NR23,0x32); //Frequency LSB
-    // processRegisterCommand(NR24,0x86); //TL-- -FFF Trigger, Length enable, Frequency MSB
+// #define STARTSOUND
+#ifdef STARTSOUND
+    processRegisterCommand(NR10,0x0);//-PPP NSSS Sweep period, negate, shift
+    processRegisterCommand(NR21,0xBF); //	DDLL LLLL Duty, Length load (64-L)
+    processRegisterCommand(NR22,0x0F); //VVVV APPP Starting volume, Envelope add mode, period
+    processRegisterCommand(NR23,0x32); //Frequency LSB
+    processRegisterCommand(NR24,0x86); //TL-- -FFF Trigger, Length enable, Frequency MSB
+#endif
 }
 
 void lenTick() {
@@ -295,12 +304,11 @@ ISR (TIMER0_COMPA_vect) {
   byte pulse;
   // Circular shift our sqWave, output current (before shift) MSB to pulse byte
   asm volatile(
-    // "mov __tmp_reg__, %0 \n\t"
-    "bst %[wave], 7   \n\t" //Store in T flag.
+    "bst %[wave], 7   \n\t"       //Store bit 7 in T flag, cuz it will fall off later.
     "eor %[pulse], %[pulse] \n\t" //Zero the variable
-    "bld %[pulse], 0  \n\t" //Set the pulse byte
-    "rol %[wave]      \n\t" //Rotate left, with bit 7 falling off the end.
-    "bld %[wave], 0   \n\t" //Put back into beginning.
+    "bld %[pulse], 0  \n\t"       //Set the (0th bit of) pulse byte from the T-flag
+    "rol %[wave]      \n\t"       //Rotate left, with bit 7 falling off the end.
+    "bld %[wave], 0   \n\t"       //Put back into beginning.
     
     : [wave] "=&r" (sqWaveCurrent), [pulse] "=r" (pulse)  //Output operands
     : "0" (sqWaveCurrent)                                 //input operands
